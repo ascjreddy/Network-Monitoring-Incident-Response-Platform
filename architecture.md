@@ -160,9 +160,6 @@ syslog_collector.py   snmp_poller2.py
 
 ## Design decisions
 
-**Why rule-based correlation instead of ML?**
-Network protocol failures are deterministic — interface down always causes OSPF neighbor loss on adjacent devices. Rules are transparent, debuggable, and don't need training data. ML would be harder to explain and wouldn't add anything here.
-
 **Why a Python dict for topology instead of NetworkX?**
 The topology is small and static (12 devices). A plain dict with upstream/downstream keys is enough to trace cascades without adding a graph library dependency. If this scaled to hundreds of devices, a proper graph structure would make sense.
 
