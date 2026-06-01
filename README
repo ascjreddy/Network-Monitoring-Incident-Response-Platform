@@ -1,196 +1,109 @@
-# Network Incident Intelligence Platform
-**Automated root cause analysis for multi-device network outages**
+Network Incident Intelligence Platform
+Automated root cause analysis for multi-device network outages.
 
----
+The problem
+When a network goes down, engineers SSH into every device one by one, manually grep through logs, and cross-reference timestamps across routers and switches to figure out what broke first. That takes 15–30 minutes per incident.
+This project automates that entire process.
 
-When a network goes down, the last thing you want to do is SSH into 12 devices one by one and manually grep through logs trying to figure out what broke first. This project automates that entire process — it watches all your devices, correlates events across the whole topology, and tells you exactly what failed, when, and why, usually within 60 seconds.
+What it does
+The system watches all devices in real time. When something fails, it correlates events across the topology, identifies the root cause, and generates a plain-English incident report — all within 60 seconds.
+Example: Core-SW-01 interface goes down at 06:43:41 → OSPF adjacency lost at 06:43:43 → incident detected and reported at 06:43:44 with root cause, affected devices, and remediation steps.
 
-Built for my MS Telecommunications Engineering capstone at University of Maryland, College Park. May 2026.
+How it works
+Three scripts run together:
+1. syslog_collector.py — runs on the GNS3 VM
+Listens on UDP 514. All network devices send their syslog messages here. Parses each message (severity, device name, raw message) and writes it to PostgreSQL on the Windows host.
+2. snmp_poller2.py — runs on the GNS3 VM
+Polls all devices every 30 seconds using snmpget. Checks if each device is reachable and writes the status to PostgreSQL. Detects devices that go unreachable even if they don't send a syslog.
+3. incident_engine.py — runs on Windows
+Reads the last 10 minutes of events from PostgreSQL every 30 seconds. Look for known failure patterns (interface down, OSPF adjacency lost, device unreachable, link flapping). Traces the causal chain using the topology map. Saves the incident to the database and prints a full report. Also detects when incidents resolve and marks them closed.
+GNS3 VM (Linux)                        Windows Host
+─────────────────────                  ──────────────────────
+syslog_collector.py  ──┐               incident_engine.py
+snmp_poller2.py      ──┼──► PostgreSQL ◄── reads events
+                       │               └──► Grafana dashboard
+Network devices ───────┘
+(Cisco IOU, 12 devices)
 
----
+Network topology
+12 Cisco IOU devices in GNS3, connected in a 4-tier hierarchy:
+ISP-RTR-A
+    |
+Edge-RTR-01
+    |
+Core-SW-01 ──── Core-SW-02
+    |                |
+Dist-HQ         Dist-Branch
+  /    \              |
+Acc-SW1  Acc-SW2   Acc-SW3
+  |        |          |
+IT-PCs  ENG-PCs   SALES-PCs
+All routers run OSPF. Syslog and SNMP community public configured on every device.
 
-## What it does
+Tech stack
+ComponentToolNetwork simulationGNS3Network devicesCisco IOU (routers + switches)TelemetryPython syslog server + snmpget subprocessDatabasePostgreSQLTopology modelingPython dict (TOPOLOGY map in engine)DashboardsGrafana
 
-A core switch interface goes down at 14:23:01. Two distribution switches lose their OSPF neighbor at 14:23:11. Routes get withdrawn at 14:23:12. 120 users can't reach the application.
+How to run
+Requirements: GNS3 VM, Python 3, PostgreSQL, Grafana, snmp-utils installed on GNS3 VM
+On each Cisco IOU device:
+conf t
+snmp-server community public RO
+logging host <GNS3-VM-IP>
+logging trap informational
+logging on
+end
+write memory
+GNS3 VM — terminal 1:
+bashsudo python3 ~/syslog_collector.py
+GNS3 VM — terminal 2 (SSH from Windows):
+bashsudo python3 ~/snmp_poller2.py
+Windows PowerShell:
+powershellcd C:\network-incident-platform\monitoring\correlation
+python incident_engine.py
+Grafana runs as a Windows service at http://localhost:3000. Import grafana-dashboard.json from the dashboards folder.
 
-Without this system: an engineer SSHs into every device, manually cross-references timestamps, and figures out the cascade after 15-30 minutes.
+Test scenarios
+Failures injected manually, system response observed:
+#ScenarioHow triggeredWhat the system detected1OSPF adjacency lossshutdown on Core-SW-01 Ethernet0/0OSPF_NEIGHBOR_LOST on downstream device, root cause traced, incident resolved when interface restored2Interface down——3Device unreachable——4Link flapping——5HSRP failover——6–15More scenarios——
+Cases 2–15 in progress — results will be updated here as each is tested.
 
-With this system: the correlation engine detects the interface failure, traces the OSPF and routing chain, identifies the root cause, and generates a plain-English incident report — all in under 60 seconds.
+Sample output
+============================================================
+  INCIDENT DETECTED -- 2026-06-01 02:57:28
+============================================================
+  Type:        OSPF_NEIGHBOR_LOST
+  Root Cause:  192.168.42.253
+  Event:       OSPF adjacency lost at 2026-06-01 02:57:22
+  Affected:    (downstream devices)
+  Remediation: Verify OSPF config on both sides.
+               Run: show ip ospf neighbor. Check interface status.
+------------------------------------------------------------
+  Timeline:
+    2026-06-01 02:57:22 | 192.168.42.253 | %OSPF-5-ADJCHG: Process 1,
+    Nbr 2.2.2.1 on FastEthernet0/1 from FULL to DOWN
+============================================================
 
----
+============================================================
+  INCIDENT RESOLVED -- 2026-06-01 03:13:37
+============================================================
+  Device:  192.168.42.253
+  Type:    OSPF_NEIGHBOR_LOST
+  Status:  OSPF adjacency restored
+============================================================
 
-## Architecture overview
+Dashboards
+Grafana dashboard at http://localhost:3000 shows:
 
-```
-Network Devices (12x Arista vEOS + pfSense)
-        |
-        |  syslog (UDP 514) + SNMP (every 30s)
-        v
-Telemetry Collector (Python)
-        |
-        v
-PostgreSQL (time-series event storage)
-        |
-        v
-Correlation Engine (Python + NetworkX)
-        |
-        +-------> Grafana Dashboards (real-time)
-        |
-        +-------> Incident Reports (plain English, auto-generated)
-```
+Live incident status (HEALTHY / active incident count)
+Device health heatmap (SNMP reachability per device)
+Syslog stream (live events by device and severity)
+Incident log with root cause, affected devices, and resolution time
+SNMP polling history over time
 
-**Network topology — 4 tiers, 12 devices:**
+Grafana dashboard at http://localhost:3000 shows:
 
-| Layer | Devices | Protocols |
-|-------|---------|-----------|
-| Edge | 2x Edge Routers, 2x Firewalls | BGP, VRRP, NAT |
-| Core | 2x Core Switches (L3) | OSPF Area 0, HSRP |
-| Distribution | 2x Distribution Switches (L3) | VLAN routing, OSPF |
-| Access | 2x Access Switches (L2) | 802.1Q trunking |
-
-4 VLANs: Employee, Guest, DMZ, Management
-
----
-
-## Tech stack
-
-| Component | Tool |
-|-----------|------|
-| Network devices | Arista vEOS, pfSense |
-| Network simulator | GNS3 |
-| Telemetry collection | Python (syslog server + PySNMP poller) |
-| Database | PostgreSQL |
-| Topology modeling | NetworkX |
-| Dashboards | Grafana |
-| Language | Python 3 |
-
----
-
-## Repo structure
-
-```
-network-incident-platform/
-├── README.md
-├── docs/
-│   ├── architecture.md          # full system design
-│   ├── correlation-rules.md     # how the engine works
-│   └── test-results.md          # all 15+ failure scenarios + outcomes
-├── topology/
-│   ├── network-diagram.png      # full topology diagram
-│   └── ip-addressing.md         # IP scheme for all devices
-├── configs/
-│   └── device-configs/          # startup configs for all 12 devices
-├── monitoring/
-│   ├── collectors/
-│   │   ├── syslog_collector.py  # listens on UDP 514
-│   │   └── snmp_poller.py       # polls every 30s
-│   ├── correlation/
-│   │   └── incident_engine.py   # root cause analysis logic
-│   └── dashboards/
-│       └── grafana-dashboard.json
-├── tests/
-│   └── failure-scenarios/       # scripts to inject test failures
-└── screenshots/                 # Grafana dashboard + incident report examples
-```
-
----
-
-## How to run it
-
-### Prerequisites
-- GNS3 with Arista vEOS images loaded
-- Python 3.9+
-- PostgreSQL
-- Grafana
-
-### Setup
-
-```bash
-git clone https://github.com/YOUR_USERNAME/network-incident-platform
-cd network-incident-platform
-
-pip install -r requirements.txt
-```
-
-Set up the database:
-```bash
-psql -U postgres -f docs/schema.sql
-```
-
-Start collecting telemetry:
-```bash
-# terminal 1 — syslog listener
-python monitoring/collectors/syslog_collector.py
-
-# terminal 2 — SNMP poller
-python monitoring/collectors/snmp_poller.py
-
-# terminal 3 — correlation engine
-python monitoring/correlation/incident_engine.py
-```
-
-Import the Grafana dashboard from `monitoring/dashboards/grafana-dashboard.json`.
-
----
-
-## Testing / failure scenarios
-
-I tested 15+ deliberate failure injections:
-
-| Scenario | What I did | What the system caught |
-|----------|------------|------------------------|
-| Interface failure | Shut down Core-SW-01 Eth2 | Root cause identified, OSPF cascade traced |
-| OSPF flap | Repeatedly toggled interface | Flagged as unstable adjacency (5+ flaps / 10 min) |
-| HSRP failover | Killed the HSRP active router | Core-SW-02 became gateway in <3 seconds |
-| Config error | Misconfigured a VLAN | VLAN 10 clients isolated, caught immediately |
-| Link failure | Disconnected core-to-dist cable | Traffic reroute detected, redundant path used |
-
-Target metrics:
-- MTTD under 60 seconds ✅
-- Root cause accuracy 100% across all scenarios ✅
-- Zero false positives ✅
-
----
-
-## Sample incident report output
-
-```
-INCIDENT DETECTED — 14:23:15 UTC
-Severity: Critical
-
-Root Cause:
-  Core-SW-01 — Interface Ethernet2 went down at 14:23:01
-
-Cascade:
-  14:23:01  Core-SW-01       Ethernet2 down
-  14:23:11  Dist-SW-01       OSPF neighbor 10.100.252.1 lost
-  14:23:11  Dist-SW-02       OSPF neighbor 10.100.252.1 lost
-  14:23:12  Dist-SW-01       Route 10.10.10.0/24 withdrawn
-  14:23:14  App-Server-01    Unreachable
-
-Impact:
-  Devices affected: 4
-  Estimated users offline: 120
-  Estimated revenue impact: $33,600 (6 minutes × $5,600/min)
-
-Recommended action:
-  Check Core-SW-01 Ethernet2 — physical layer or config issue likely.
-  Run: show interfaces Ethernet2 on Core-SW-01
-```
-
----
-
-## Status
-
-**Week 1** — GNS3 topology built, all 12 devices up, OSPF running ✅  
-**Week 2** — Syslog + SNMP collection working, PostgreSQL populated ✅  
-**Week 3** — Correlation engine built, 15 test scenarios passing ✅  
-**Week 4** — Grafana dashboards + incident report generation ✅  
-
----
-
-## About
-
-Sri Chandraja Reddy Allala  
-MS Telecommunications Engineering — University of Maryland, College Park  
-[LinkedIn](#) · [Email](#)
+Live incident status (HEALTHY / active incident count)
+Device health heatmap (SNMP reachability per device)
+Syslog stream (live events by device and severity)
+Incident log with root cause, affected devices, and resolution time
+SNMP polling history over time
