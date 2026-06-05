@@ -1,57 +1,25 @@
-# IP Addressing Scheme
+# IP Addressing
 
-## Summary
+Device IPs as configured in the GNS3 topology.
 
-| Subnet | Purpose | VLAN |
-|--------|---------|------|
-| 10.10.10.0/24 | Employee hosts | VLAN 10 |
-| 10.10.20.0/24 | Guest hosts | VLAN 20 |
-| 10.10.30.0/24 | DMZ servers | VLAN 30 |
-| 10.10.99.0/24 | Management | VLAN 99 |
-| 10.100.252.0/30 | Core-Dist link 1 | point-to-point |
-| 10.100.253.0/30 | Core-Dist link 2 | point-to-point |
-| 10.100.254.0/30 | Edge-Core uplink | point-to-point |
-| 192.168.1.0/30 | ISP-facing (Edge-Router-01) | WAN |
-| 192.168.2.0/30 | ISP-facing (Edge-Router-02) | WAN |
+## Monitored devices
 
----
+| Device | Role | IP |
+|---|---|---|
+| ISP-RTR-A | ISP router | 203.0.113.1 |
+| Edge-RTR-01 | Edge router | 10.0.0.1 |
+| Core-SW-01 | Core switch | 10.0.0.2 |
+| Core-SW-02 | Core switch | 10.0.0.6 |
+| Dist-HQ | Distribution (HQ) | 10.0.0.10 |
+| Dist-Branch | Distribution (Branch) | 10.0.0.14 |
+| Acc-SW1 | Access switch | 10.99.0.31 |
+| Acc-SW2 | Access switch | 10.99.0.32 |
+| Acc-SW3 | Access switch | 10.99.0.33 |
 
-## Device management IPs (VLAN 99)
+## Routing protocol
 
-| Device | Hostname | Mgmt IP |
-|--------|----------|---------|
-| Edge Router 1 | Edge-RTR-01 | 10.10.99.1 |
-| Edge Router 2 | Edge-RTR-02 | 10.10.99.2 |
-| Firewall 1 | FW-01 | 10.10.99.3 |
-| Firewall 2 | FW-02 | 10.10.99.4 |
-| Core Switch 1 | Core-SW-01 | 10.10.99.5 |
-| Core Switch 2 | Core-SW-02 | 10.10.99.6 |
-| Distribution Switch 1 | Dist-SW-01 | 10.10.99.7 |
-| Distribution Switch 2 | Dist-SW-02 | 10.10.99.8 |
-| Access Switch 1 | Access-SW-01 | 10.10.99.9 |
-| Access Switch 2 | Access-SW-02 | 10.10.99.10 |
-| Access Switch 3 | Access-SW-03 | 10.10.99.11 |
-| Access Switch 4 | Access-SW-04 | 10.10.99.12 |
+OSPF runs across all routers and L3 switches. All devices are in Area 0.
 
----
+## Syslog and SNMP
 
-## OSPF configuration
-
-- All routers/L3 switches run OSPF Area 0
-- Router IDs assigned as loopback addresses (10.0.0.X/32)
-- Hello interval: 10s, Dead interval: 40s
-- Authentication: MD5 on all adjacencies
-
-## HSRP (Core layer)
-
-| VIP | Active | Standby |
-|-----|--------|---------|
-| 10.10.10.1 | Core-SW-01 | Core-SW-02 |
-| 10.10.20.1 | Core-SW-01 | Core-SW-02 |
-| 10.10.30.1 | Core-SW-02 | Core-SW-01 |
-
-## BGP
-
-- Edge-RTR-01 and Edge-RTR-02 peer with simulated upstream ISP
-- AS number: 65001 (internal), 65000 (simulated ISP)
-- VRRP on WAN-facing interfaces for redundancy
+All devices send syslog to the GNS3 VM on UDP 514. SNMP community string is `public`. The SNMP poller reaches devices via the GNS3 internal network (`192.168.42.x`).
