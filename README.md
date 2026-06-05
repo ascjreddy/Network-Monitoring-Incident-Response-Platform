@@ -1,4 +1,4 @@
-# Network Incident Intelligence Platform
+# Network Monitoring Incident Response Platform
 
 Automated root cause analysis and outage reconstruction for multi-device network environments.
 
