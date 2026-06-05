@@ -17,13 +17,13 @@ Two separate collectors run in parallel:
 **Syslog collector (`syslog_collector.py`) — runs on GNS3 VM**
 
 - Listens on UDP port 514
-- Receives syslog messages from all 12 network devices
+- Receives syslog messages from all 9 network devices
 - On receipt, parses the syslog priority byte to extract severity: `severity = priority % 8`, mapped to emergency / alert / critical / error / warning / notice / informational / debug
 - Maps source IP to device name using a hardcoded `DEVICE_MAP` dict
 - Timestamps are NOT taken from the device — PostgreSQL stamps each row with `NOW()` at insert time, which is the arrival time at the collector
 - Writes structured fields (device_ip, device_name, severity, message, raw_message) to `syslog_events` in PostgreSQL on the Windows host
 
-**SNMP poller (`snmp_poller2.py`) — runs on GNS3 VM**
+**SNMP poller (`snmp_poller.py`) — runs on GNS3 VM**
 
 - Polls 5 monitored devices every 30 seconds
 - Uses `snmpget` via subprocess — not PySNMP (switched due to PySNMP 7.x removing the `hlapi` API)
@@ -134,11 +134,11 @@ Data source: PostgreSQL direct connection.
 ## Data flow
 
 ```
-Cisco IOU devices (12x in GNS3)
+Cisco IOU devices (9x in GNS3)
         |                  |
    syslog UDP 514      snmpget subprocess
         |                  |
-syslog_collector.py   snmp_poller2.py
+syslog_collector.py   snmp_poller.py
   (GNS3 VM)             (GNS3 VM)
         |                  |
         +--------+---------+
@@ -161,10 +161,10 @@ syslog_collector.py   snmp_poller2.py
 ## Design decisions
 
 **Why a Python dict for topology instead of NetworkX?**
-The topology is small and static (12 devices). A plain dict with upstream/downstream keys is enough to trace cascades without adding a graph library dependency. If this scaled to hundreds of devices, a proper graph structure would make sense.
+The topology is small and static (9 devices). A plain dict with upstream/downstream keys is enough to trace cascades without adding a graph library dependency. If this scaled to hundreds of devices, a proper graph structure would make sense.
 
 **Why PostgreSQL instead of a time-series DB like InfluxDB?**
-At this scale (12 devices, 30s poll interval) PostgreSQL with `TIMESTAMPTZ` columns handles the load fine. Standard SQL joins make cross-device correlation queries straightforward. A production deployment at thousands of devices would warrant TimescaleDB or InfluxDB.
+At this scale (9 devices, 30s poll interval) PostgreSQL with `TIMESTAMPTZ` columns handles the load fine. Standard SQL joins make cross-device correlation queries straightforward. A production deployment at thousands of devices would warrant TimescaleDB or InfluxDB.
 
 **Why snmpget subprocess instead of PySNMP?**
 PySNMP 7.x removed the `hlapi` API that the original poller was written against. Rather than rewrite for the new API, switching to subprocess calls against the system `snmpget` binary was simpler and more reliable for this use case.
