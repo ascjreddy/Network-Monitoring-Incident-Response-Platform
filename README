@@ -176,9 +176,3 @@ Detection time: under 60 seconds from interface shutdown to incident record writ
 Additional test scenarios covering distribution-tier failure, OSPF adjacency loss, and false-positive prevention are documented in the screenshots folder.
 
 ---
-
-## About
-
-Built by Sri Chandraja Reddy Allala
-MS Telecommunications Engineering — University of Maryland, College Park
-[LinkedIn](https://www.linkedin.com/in/ascjreddy) · [GitHub](https://github.com/ascjreddy)
